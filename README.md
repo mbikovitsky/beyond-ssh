@@ -51,6 +51,9 @@ This will launch Beyond Compare in the correct mode (diff or merge), wait for it
 to exit, and communicate the return code to the server. The server will then return
 this code to Git.
 
+If the remote machine blocks connections on arbitrary ports, try passing `-t`
+to tunnel over SSH.
+
 Pass `-h / --help` to the script for extended usage information.
 
 [bc]: https://www.scootersoftware.com/

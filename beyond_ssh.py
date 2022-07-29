@@ -3,6 +3,7 @@
 
 import argparse
 import getpass
+import io
 import logging
 import os.path
 import platform
@@ -48,7 +49,10 @@ def _main():
     connect_parser.add_argument("address", help="Server address")
     connect_parser.add_argument("port", help="Server port", type=int)
     connect_parser.add_argument(
-        "-u", "--user", help="SSH username", default=getpass.getuser()
+        "-t", "--tunnel", help="Connect to server over SSH tunnel", action="store_true"
+    )
+    connect_parser.add_argument(
+        "-u", "--user", help="SSH/SFTP username", default=getpass.getuser()
     )
     connect_parser.add_argument(
         "-x", "--command", help="Beyond Compare path", default=_beyond_compare_path()
@@ -69,12 +73,14 @@ def _handle_diff(args: argparse.Namespace) -> int:
                 "Client connected from (%s, %d)", client_address[0], client_address[1]
             )
 
-            client.sendall(b"\x01")
-            _send_paths(client, [args.local, args.remote])
+            with client.makefile("rwb") as stream:
+                stream.write(b"\x01")
+                _send_paths(stream, [args.local, args.remote])
+                stream.flush()
 
-            result = struct.unpack("!i", _recvexact(client, 4))[0]
-            logging.info("BC returned %d", result)
+                result = struct.unpack("!i", _readexact(stream, 4))[0]
 
+        logging.info("BC returned %d", result)
         return result
 
 
@@ -88,33 +94,51 @@ def _handle_merge(args: argparse.Namespace) -> int:
                 "Client connected from (%s, %d)", client_address[0], client_address[1]
             )
 
-            client.sendall(b"\x02")
-            _send_paths(client, [args.local, args.remote, args.base, args.merged])
+            with client.makefile("rwb") as stream:
+                stream.write(b"\x02")
+                _send_paths(stream, [args.local, args.remote, args.base, args.merged])
+                stream.flush()
 
-            result = struct.unpack("!i", _recvexact(client, 4))[0]
-            logging.info("BC returned %d", result)
+                result = struct.unpack("!i", _readexact(stream, 4))[0]
 
+        logging.info("BC returned %d", result)
         return result
 
 
 def _handle_connect(args: argparse.Namespace) -> int:
-    with socket.create_connection((args.address, args.port)) as conn:
-        operation = _recvexact(conn, 1)
-        if not operation:
-            raise EOFError
+    if args.tunnel:
+        with subprocess.Popen(
+            ["ssh", "-W", f"localhost:{args.port}", f"{args.user}@{args.address}"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,  # We'll be doing our own buffering
+        ) as process:
+            stream = io.BufferedRWPair(process.stdout, process.stdin)
+            result = _handle_connect_common(args, stream)
+            process.communicate()
+            return result
+    else:
+        with socket.create_connection((args.address, args.port)) as conn:
+            with conn.makefile(mode="rwb") as stream:
+                return _handle_connect_common(args, stream)
 
-        if operation == b"\x01":  # Diff
-            paths = _receive_paths(conn, 2)
-        elif operation == b"\x02":  # Merge
-            paths = _receive_paths(conn, 4)
-        else:
-            raise ValueError(f"Unknown operation {operation}")
 
-        paths = list(_transform_paths(args.address, args.user, paths))
+def _handle_connect_common(args: argparse.Namespace, stream: io.BufferedIOBase) -> int:
+    operation = _readexact(stream, 1)
+    if operation == b"\x01":  # Diff
+        paths = _receive_paths(stream, 2)
+    elif operation == b"\x02":  # Merge
+        paths = _receive_paths(stream, 4)
+    else:
+        raise ValueError(f"Unknown operation {operation}")
 
-        result = subprocess.run([args.command, *paths], check=False)
+    paths = list(_transform_paths(args.address, args.user, paths))
 
-        conn.sendall(struct.pack("!i", result.returncode))
+    result = subprocess.run([args.command, *paths], check=False)
+
+    stream.write(struct.pack("!i", result.returncode))
+    stream.flush()
 
     return 0
 
@@ -129,33 +153,33 @@ def _start_server() -> socket.socket:
         return socket.create_server(address)
 
 
-def _send_paths(conn: socket.socket, paths: Iterable[str]):
+def _send_paths(stream: io.BufferedIOBase, paths: Iterable[str]):
     payload = bytearray()
     for path in paths:
         path_bytes = os.path.abspath(path).encode("UTF-8")
         payload += struct.pack("!I", len(path_bytes))
         payload += path_bytes
 
-    conn.sendall(payload)
+    stream.write(payload)
 
 
-def _receive_paths(conn: socket.socket, count: int) -> List[str]:
+def _receive_paths(stream: io.BufferedIOBase, count: int) -> List[str]:
     result = [None] * count
     for i in range(count):
-        length = struct.unpack("!I", _recvexact(conn, 4))[0]
-        path_bytes = _recvexact(conn, length)
+        length = struct.unpack("!I", _readexact(stream, 4))[0]
+        path_bytes = _readexact(stream, length)
         result[i] = path_bytes.decode("UTF-8")
 
     return result
 
 
-def _recvexact(conn: socket.socket, length: int) -> bytes:
+def _readexact(stream: io.BufferedIOBase, length: int) -> bytes:
     result = bytearray(length)
 
     view = memoryview(result)
     remaining = length
     while remaining > 0:
-        bytes_read = conn.recv_into(view)
+        bytes_read = stream.readinto(view)
         if not bytes_read:
             raise EOFError
         view = view[bytes_read:]
