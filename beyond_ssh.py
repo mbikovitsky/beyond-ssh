@@ -72,7 +72,7 @@ def _handle_diff(args: argparse.Namespace) -> int:
             client.sendall(b"\x01")
             _send_paths(client, [args.local, args.remote])
 
-            result = struct.unpack("!i", client.recv(4))[0]
+            result = struct.unpack("!i", _recvexact(client, 4))[0]
             logging.info("BC returned %d", result)
 
         return result
@@ -91,7 +91,7 @@ def _handle_merge(args: argparse.Namespace) -> int:
             client.sendall(b"\x02")
             _send_paths(client, [args.local, args.remote, args.base, args.merged])
 
-            result = struct.unpack("!i", client.recv(4))[0]
+            result = struct.unpack("!i", _recvexact(client, 4))[0]
             logging.info("BC returned %d", result)
 
         return result
@@ -99,7 +99,7 @@ def _handle_merge(args: argparse.Namespace) -> int:
 
 def _handle_connect(args: argparse.Namespace) -> int:
     with socket.create_connection((args.address, args.port)) as conn:
-        operation = conn.recv(1)
+        operation = _recvexact(conn, 1)
         if not operation:
             raise EOFError
 
@@ -143,17 +143,30 @@ def _send_paths(conn: socket.socket, paths: Sequence[str]):
 
 
 def _receive_paths(conn: socket.socket) -> List[str]:
-    count_paths = struct.unpack("!I", conn.recv(4))[0]
+    count_paths = struct.unpack("!I", _recvexact(conn, 4))[0]
 
     result = [None] * count_paths
     for i in range(count_paths):
-        length = struct.unpack("!I", conn.recv(4))[0]
-        path_bytes = conn.recv(length)
-        if len(path_bytes) < length:
-            raise EOFError
+        length = struct.unpack("!I", _recvexact(conn, 4))[0]
+        path_bytes = _recvexact(conn, length)
         result[i] = path_bytes.decode("UTF-8")
 
     return result
+
+
+def _recvexact(conn: socket.socket, length: int) -> bytes:
+    result = bytearray(length)
+
+    view = memoryview(result)
+    remaining = length
+    while remaining > 0:
+        bytes_read = conn.recv_into(view)
+        if not bytes_read:
+            raise EOFError
+        view = view[bytes_read:]
+        remaining -= bytes_read
+
+    return bytes(result)
 
 
 def _transform_paths(
