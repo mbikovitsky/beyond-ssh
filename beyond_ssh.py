@@ -10,7 +10,7 @@ import socket
 import struct
 import subprocess
 import sys
-from typing import Generator, Iterable, List, Sequence
+from typing import Generator, Iterable, List
 
 # https://github.com/jwilk/python-syntax-errors
 lambda x, /: 0  # Python >= 3.8 is required
@@ -104,13 +104,9 @@ def _handle_connect(args: argparse.Namespace) -> int:
             raise EOFError
 
         if operation == b"\x01":  # Diff
-            paths = _receive_paths(conn)
-            if len(paths) != 2:
-                raise ValueError(f"Got {len(paths)} paths from server, but expected 2")
+            paths = _receive_paths(conn, 2)
         elif operation == b"\x02":  # Merge
-            paths = _receive_paths(conn)
-            if len(paths) != 4:
-                raise ValueError(f"Got {len(paths)} paths from server, but expected 4")
+            paths = _receive_paths(conn, 4)
         else:
             raise ValueError(f"Unknown operation {operation}")
 
@@ -133,20 +129,19 @@ def _start_server() -> socket.socket:
         return socket.create_server(address)
 
 
-def _send_paths(conn: socket.socket, paths: Sequence[str]):
-    payload = bytearray(struct.pack("!I", len(paths)))
+def _send_paths(conn: socket.socket, paths: Iterable[str]):
+    payload = bytearray()
     for path in paths:
-        path = os.path.abspath(path).encode("UTF-8")
-        payload += struct.pack(f"!I{len(path)}s", len(path), path)
+        path_bytes = os.path.abspath(path).encode("UTF-8")
+        payload += struct.pack("!I", len(path_bytes))
+        payload += path_bytes
 
     conn.sendall(payload)
 
 
-def _receive_paths(conn: socket.socket) -> List[str]:
-    count_paths = struct.unpack("!I", _recvexact(conn, 4))[0]
-
-    result = [None] * count_paths
-    for i in range(count_paths):
+def _receive_paths(conn: socket.socket, count: int) -> List[str]:
+    result = [None] * count
+    for i in range(count):
         length = struct.unpack("!I", _recvexact(conn, 4))[0]
         path_bytes = _recvexact(conn, length)
         result[i] = path_bytes.decode("UTF-8")
