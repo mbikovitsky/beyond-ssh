@@ -114,10 +114,13 @@ def _handle_connect(args: argparse.Namespace) -> int:
             stderr=subprocess.DEVNULL,
             bufsize=0,  # We'll be doing our own buffering
         ) as process:
-            stream = io.BufferedRWPair(process.stdout, process.stdin)
-            result = _handle_connect_common(args, stream)
-            process.communicate()
-            return result
+            try:
+                stream = io.BufferedRWPair(process.stdout, process.stdin)
+                result = _handle_connect_common(args, stream)
+                process.communicate(timeout=5)
+                return result
+            finally:
+                process.kill()  # Doesn't do anything if process is already dead
     else:
         with socket.create_connection((args.address, args.port)) as conn:
             with conn.makefile(mode="rwb") as stream:
