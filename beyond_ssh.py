@@ -111,7 +111,6 @@ def _handle_connect(args: argparse.Namespace) -> int:
             ["ssh", "-W", f"localhost:{args.port}", f"{args.user}@{args.address}"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
             bufsize=0,  # We'll be doing our own buffering
         ) as process:
             try:
