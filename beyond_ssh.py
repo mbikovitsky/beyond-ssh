@@ -69,28 +69,21 @@ def _main() -> int:
 
 
 def _handle_diff(args: argparse.Namespace) -> int:
-    with _start_server() as server:
-        logging.info("Listening on port %d", server.getsockname()[1])
-
-        client, client_address = server.accept()
-        with client:
-            logging.info(
-                "Client connected from (%s, %d)", client_address[0], client_address[1]
-            )
-
-            with client.makefile("rwb") as stream:
-                stream.write(b"\x01")
-                _send_paths(stream, [args.local, args.remote])
-                stream.flush()
-
-                (result,) = struct.unpack("!i", _readexact(stream, 4))
-                assert isinstance(result, int)
-
-        logging.info("BC returned %d", result)
-        return result
+    return _handle_diff_merge_common(args, True)
 
 
 def _handle_merge(args: argparse.Namespace) -> int:
+    return _handle_diff_merge_common(args, False)
+
+
+def _handle_diff_merge_common(args: argparse.Namespace, is_diff: bool) -> int:
+    if is_diff:
+        command = b"\x01"
+        paths = [args.local, args.remote]
+    else:  # merge
+        command = b"\x02"
+        paths = [args.local, args.remote, args.base, args.merged]
+
     with _start_server() as server:
         logging.info("Listening on port %d", server.getsockname()[1])
 
@@ -101,8 +94,8 @@ def _handle_merge(args: argparse.Namespace) -> int:
             )
 
             with client.makefile("rwb") as stream:
-                stream.write(b"\x02")
-                _send_paths(stream, [args.local, args.remote, args.base, args.merged])
+                stream.write(command)
+                _send_paths(stream, paths)
                 stream.flush()
 
                 (result,) = struct.unpack("!i", _readexact(stream, 4))
