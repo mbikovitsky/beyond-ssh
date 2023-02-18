@@ -1,0 +1,5 @@
+[tool.mypy]
+strict = true
+
+[tool.isort]
+profile = "black"

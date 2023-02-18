@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+from __future__ import annotations
+
 import argparse
 import getpass
 import io
@@ -11,13 +13,14 @@ import socket
 import struct
 import subprocess
 import sys
-from typing import Generator, Iterable, List
+import typing
+from typing import Generator, Iterable
 
 # https://github.com/jwilk/python-syntax-errors
 lambda x, /: 0  # Python >= 3.8 is required
 
 
-def _main():
+def _main() -> int:
     logging.basicConfig(
         format="beyond-ssh:%(levelname)s:%(message)s", level=logging.INFO
     )
@@ -60,7 +63,9 @@ def _main():
 
     args = parser.parse_args()
 
-    return args.func(args)
+    result = args.func(args)
+    assert isinstance(result, int)
+    return result
 
 
 def _handle_diff(args: argparse.Namespace) -> int:
@@ -78,7 +83,8 @@ def _handle_diff(args: argparse.Namespace) -> int:
                 _send_paths(stream, [args.local, args.remote])
                 stream.flush()
 
-                result = struct.unpack("!i", _readexact(stream, 4))[0]
+                (result,) = struct.unpack("!i", _readexact(stream, 4))
+                assert isinstance(result, int)
 
         logging.info("BC returned %d", result)
         return result
@@ -99,7 +105,8 @@ def _handle_merge(args: argparse.Namespace) -> int:
                 _send_paths(stream, [args.local, args.remote, args.base, args.merged])
                 stream.flush()
 
-                result = struct.unpack("!i", _readexact(stream, 4))[0]
+                (result,) = struct.unpack("!i", _readexact(stream, 4))
+                assert isinstance(result, int)
 
         logging.info("BC returned %d", result)
         return result
@@ -114,6 +121,8 @@ def _handle_connect(args: argparse.Namespace) -> int:
             bufsize=0,  # We'll be doing our own buffering
         ) as process:
             try:
+                assert isinstance(process.stdin, io.RawIOBase)
+                assert isinstance(process.stdout, io.RawIOBase)
                 stream = io.BufferedRWPair(process.stdout, process.stdin)
                 result = _handle_connect_common(args, stream)
                 process.communicate(timeout=5)
@@ -133,7 +142,7 @@ def _handle_connect_common(args: argparse.Namespace, stream: io.BufferedIOBase) 
     elif operation == b"\x02":  # Merge
         paths = _receive_paths(stream, 4)
     else:
-        raise ValueError(f"Unknown operation {operation}")
+        raise ValueError(f"Unknown operation {operation!r}")
 
     paths = list(_transform_paths(args.address, args.user, paths))
 
@@ -155,7 +164,7 @@ def _start_server() -> socket.socket:
         return socket.create_server(address)
 
 
-def _send_paths(stream: io.BufferedIOBase, paths: Iterable[str]):
+def _send_paths(stream: io.BufferedIOBase, paths: Iterable[str]) -> None:
     payload = bytearray()
     for path in paths:
         path_bytes = os.path.abspath(path).encode("UTF-8")
@@ -165,14 +174,13 @@ def _send_paths(stream: io.BufferedIOBase, paths: Iterable[str]):
     stream.write(payload)
 
 
-def _receive_paths(stream: io.BufferedIOBase, count: int) -> List[str]:
-    result = [None] * count
+def _receive_paths(stream: io.BufferedIOBase, count: int) -> list[str]:
+    result: list[str | None] = [None] * count
     for i in range(count):
         length = struct.unpack("!I", _readexact(stream, 4))[0]
         path_bytes = _readexact(stream, length)
         result[i] = path_bytes.decode("UTF-8")
-
-    return result
+    return typing.cast("list[str]", result)
 
 
 def _readexact(stream: io.BufferedIOBase, length: int) -> bytes:
