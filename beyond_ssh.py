@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import getpass
 import io
 import logging
@@ -31,17 +32,37 @@ def _main() -> int:
         title="subcommands", required=True, dest="command"
     )
 
-    diff_parser = subparsers.add_parser("diff", help="Diff files")
+    diff_parser = subparsers.add_parser(
+        "diff",
+        help="Diff files",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     diff_parser.set_defaults(func=_handle_diff)
     diff_parser.add_argument("local", help="Diff pre-image")
     diff_parser.add_argument("remote", help="Diff post-image")
+    diff_parser.add_argument(
+        "-f",
+        "--message-format",
+        default="Listening on port {port}",
+        help="Format string for the server port message",
+    )
 
-    merge_parser = subparsers.add_parser("merge", help="Merge files")
+    merge_parser = subparsers.add_parser(
+        "merge",
+        help="Merge files",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     merge_parser.set_defaults(func=_handle_merge)
     merge_parser.add_argument("local", help="File on the current branch")
     merge_parser.add_argument("remote", help="File to be merged")
     merge_parser.add_argument("base", help="Common base")
     merge_parser.add_argument("merged", help="Merge output")
+    merge_parser.add_argument(
+        "-f",
+        "--message-format",
+        default="Listening on port {port}",
+        help="Format string for the server port message",
+    )
 
     connect_parser = subparsers.add_parser(
         "connect",
@@ -85,7 +106,18 @@ def _handle_diff_merge_common(args: argparse.Namespace, is_diff: bool) -> int:
         paths = [args.local, args.remote, args.base, args.merged]
 
     with _start_server() as server:
-        logging.info("Listening on port %d", server.getsockname()[1])
+        port = server.getsockname()[1]
+        assert isinstance(port, int)
+
+        assert isinstance(args.message_format, str)
+        listen_message = args.message_format.format(
+            e="\x1b",
+            b="\x07",
+            port=port,
+            port_b64=base64.b64encode(str(port).encode("utf-8")).decode("ascii"),
+        )
+
+        logging.info(listen_message)
 
         client, client_address = server.accept()
         with client:
