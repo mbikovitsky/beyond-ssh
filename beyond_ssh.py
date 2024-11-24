@@ -240,7 +240,7 @@ def _beyond_compare_path() -> str:
     elif system == "Darwin":
         return "/usr/local/bin/bcomp"
     elif system == "Windows":
-        return "C:\\Program Files\\Beyond Compare 4\\bcomp.exe"
+        return "C:\\Program Files\\Beyond Compare 5\\bcomp.exe"
     else:
         return "bcomp"
 
