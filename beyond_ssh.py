@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+#
+# /// script
+# requires-python = ">=3.8"
+# dependencies = []
+# ///
+
 
 from __future__ import annotations
 
 import argparse
 import base64
-import getpass
 import io
 import logging
 import os.path
@@ -75,8 +79,9 @@ def _main() -> int:
     connect_parser.add_argument(
         "-t", "--tunnel", help="Connect to server over SSH tunnel", action="store_true"
     )
+    connect_parser.add_argument("-u", "--user", help="SSH/SFTP username")
     connect_parser.add_argument(
-        "-u", "--user", help="SSH/SFTP username", default=getpass.getuser()
+        "-p", "--ssh-port", help="SSH/SFTP port", type=lambda x: int(x, 0)
     )
     connect_parser.add_argument(
         "-x", "--command", help="Beyond Compare path", default=_beyond_compare_path()
@@ -140,7 +145,14 @@ def _handle_diff_merge_common(args: argparse.Namespace, is_diff: bool) -> int:
 def _handle_connect(args: argparse.Namespace) -> int:
     if args.tunnel:
         with subprocess.Popen(
-            ["ssh", "-W", f"localhost:{args.port}", f"{args.user}@{args.address}"],
+            [
+                "ssh",
+                "-W",
+                f"localhost:{args.port}",
+                *(("-l", args.user) if args.user is not None else ()),
+                *(("-p", str(args.ssh_port)) if args.ssh_port is not None else ()),
+                args.address,
+            ],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             bufsize=0,  # We'll be doing our own buffering
@@ -169,7 +181,7 @@ def _handle_connect_common(args: argparse.Namespace, stream: io.BufferedIOBase) 
     else:
         raise ValueError(f"Unknown operation {operation!r}")
 
-    paths = list(_transform_paths(args.address, args.user, paths))
+    paths = list(_transform_paths(args.address, args.user, args.ssh_port, paths))
 
     result = subprocess.run([args.command, *paths], check=False)
 
@@ -224,10 +236,16 @@ def _readexact(stream: io.BufferedIOBase, length: int) -> bytes:
 
 
 def _transform_paths(
-    address: str, username: str, paths: Iterable[str]
+    address: str,
+    username: str | None,
+    port: int | None,
+    paths: Iterable[str],
 ) -> Generator[str, None, None]:
+    username_str = f"{username}@" if username is not None else ""
+    port_str = f":{port}" if port is not None else ""
+    base_uri = f"sftp://{username_str}{address}{port_str}"
     for path in paths:
-        yield f"sftp://{username}@{address}/{path}"
+        yield f"{base_uri}/{path}"
 
 
 def _beyond_compare_path() -> str:

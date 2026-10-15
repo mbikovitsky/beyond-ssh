@@ -51,8 +51,15 @@ This will launch Beyond Compare in the correct mode (diff or merge), wait for it
 to exit, and communicate the return code to the server. The server will then return
 this code to Git.
 
-If the remote machine blocks connections on arbitrary ports, try passing `-t`
-to tunnel over SSH.
+Beyond Compare will connect to the remote machine over SFTP. If the remote
+machine listens on a different SSH port, pass it with `-p / --ssh-port`. To
+specify a different username, use `-u / --user`. If left unspecified, Beyond
+Compare will use defaults, or whatever is configured in a matching
+[profile][profile].
+
+If the remote machine blocks connections on arbitrary ports, try passing `-t / --tunnel`
+to tunnel the conenction to the tool over SSH. If `-p` or `-u` are not specified,
+defaults will be used (see the man page for [ssh_config][ssh_config]).
 
 Pass `-h / --help` to the script for extended usage information.
 
@@ -107,7 +114,11 @@ If you're using tmux the escape sequence has to be wrapped:
 ```
 
 [bc]: https://www.scootersoftware.com/
-    "Scooter Software: Home of Beyond Compare"
+    "Scooter Software - Home of Beyond Compare"
 
-[wez]: https://wezfurlong.org/wezterm/index.html
-    "wezterm - Wez's Terminal Emulator"
+[wez]: https://wezterm.org
+    "WezTerm - Wez's Terminal Emulator"
+
+[profile]: https://www.scootersoftware.com/v5help/profileftpglobal.html
+
+[ssh_config]: https://manpages.debian.org/stable/ssh_config
